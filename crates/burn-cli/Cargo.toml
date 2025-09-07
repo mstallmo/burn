@@ -12,6 +12,7 @@ workspace = true
 anyhow = { workspace = true }
 burn = { path = "../burn", version = "0.19.0" }
 clap = { workspace = true }
+console = { workspace = true }
 minijinja = { workspace = true }
 minijinja-embed = { workspace = true }
 toml_edit = { workspace = true }
