@@ -1,3 +1,24 @@
 use burn::{
     prelude::*,
 };
+
+#[derive(Config, Debug)]
+pub struct ModelConfig;
+
+impl ModelConfig {
+    /// Returns initialized model
+    pub fn init<B: Backend>(&self, device: &B::Device) -> Model<B> {
+        todo!("Implement the model structure");
+    }
+}
+
+#[derive(Module, Debug)]
+pub struct Model<B: Backend> {
+    _phantom_data: std::marker::PhantomData<B>,
+}
+
+impl<B: Backend> Model<B> {
+    pub fn forward(&self, images: Tensor<B, 3>) -> Tensor<B, 2> {
+        todo!("Implement the model forward pass");
+    }
+}

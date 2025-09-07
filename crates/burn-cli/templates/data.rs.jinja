@@ -1,3 +1,18 @@
 use burn::{
+    data::dataloader::batcher::Batcher,
     prelude::*,
 };
+
+#[derive(Clone, Debug)]
+pub struct {{context.model_name}}Batch<B: Backend> {
+    _phantom_data: std::marker::PhantomData<B>,
+}
+
+#[derive(Clone, Default)]
+pub struct {{context.model_name}}Batcher;
+
+impl<B: Backend> Batcher<B, _, {{context.model_name}}Batch<B>> for {{context.model_name}}Batcher {
+    fn batch(&self, items: Vec<_>, device: &B::Device) -> {{context.model_name}}Batch<B> {
+        unimplemented!();
+    }
+}

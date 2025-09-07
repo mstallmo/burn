@@ -7,6 +7,7 @@
 //      - [x] model
 //      - [x] training
 //      - [x] lib w/ template
+//  - [x] Polish up the module template contents
 //  - [] `bin` helper files
 //  - [] `crates` in Cargo.toml
 // - [] Polish output and feedback
@@ -18,11 +19,12 @@ use clap::{Parser, Subcommand};
 use minijinja::{Environment, context};
 use std::{
     env,
-    fs::File,
+    fs::{self, File},
     io::Write,
     path::{Path, PathBuf},
     process,
 };
+use toml_edit::{Array, DocumentMut, Value};
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -86,8 +88,10 @@ fn generate_files(project_path: &Path) -> anyhow::Result<()> {
 
     // data.rs
     let data_template = env.get_template("data.rs.jinja")?;
-    let data_context = context! {};
-    let content = data_template.render(context!(data_context))?;
+    let context = context! {
+        model_name => "Mnist",
+    };
+    let content = data_template.render(context!(context))?;
 
     let mut data_file = File::create(project_path.join("src/data.rs"))?;
     write!(data_file, "{content}")?;
@@ -95,7 +99,7 @@ fn generate_files(project_path: &Path) -> anyhow::Result<()> {
     // inference.rs
     let inference_template = env.get_template("inference.rs.jinja")?;
     let context = context! {
-        item_name => "MnistItem",
+        model_name => "Mnist",
     };
     let content = inference_template.render(context!(context))?;
 
@@ -112,7 +116,9 @@ fn generate_files(project_path: &Path) -> anyhow::Result<()> {
 
     // training.rs
     let training_template = env.get_template("training.rs.jinja")?;
-    let context = context! {};
+    let context = context! {
+        model_name => "Mnist",
+    };
     let content = training_template.render(context!(context))?;
 
     let mut training_file = File::create(project_path.join("src/training.rs"))?;
@@ -125,6 +131,26 @@ fn generate_files(project_path: &Path) -> anyhow::Result<()> {
 
     let mut lib_file = File::create(project_path.join("src/lib.rs"))?;
     write!(lib_file, "{content}")?;
+
+    // Update Cargo.toml
+    let cargo_toml_path = project_path.join("Cargo.toml");
+    let mut cargo_toml = fs::read_to_string(&cargo_toml_path)?.parse::<DocumentMut>()?;
+    cargo_toml["dependencies"] = toml_edit::table();
+    cargo_toml["dependencies"]
+        .as_table_mut()
+        .unwrap()
+        .set_position(1);
+    cargo_toml["dependencies"]["burn"]["version"] = toml_edit::value("0.18.0");
+    let mut features = Array::new();
+    features.push("std");
+    features.push("tui");
+    features.push("train");
+    features.push("wgpu");
+    features.push("fusion");
+    cargo_toml["dependencies"]["burn"]["features"] = toml_edit::value(Value::Array(features));
+    cargo_toml["dependencies"]["burn"]["default-features"] = toml_edit::value(false);
+    let mut cargo_toml_file = File::create(&cargo_toml_path)?;
+    write!(cargo_toml_file, "{cargo_toml}")?;
 
     Ok(())
 }
