@@ -1,0 +1,21 @@
+use burn::{
+    backend::{Autodiff, {{context.backend}} },
+};
+use {{context.project_name}}::{model::ModelConfig, training::TrainingConfig};
+
+fn main() {
+    type {{context.project_name|capitalize}}Backend = {{context.backend}}<{{context.float_type}}, {{context.int_type}}>;
+    type MyAutodiffBackend = Autodiff<{{context.project_name|capitalize}}Backend>;
+
+     let artifact_dir = "{{context.artifact_dir}}";
+
+    // Complete training implementation by creating a backend compatible device, constructing
+    // the training config (model config and optimizer), and updating the train function
+    // in src/training.rs to accept the input data.
+    //
+    // {{context.project_name}}::training::train::<MyAutodiffBackend>(
+    //    artifact_dir,
+    //    TrainingConfig::new(ModelConfig::new()),
+    //    device.clone(),
+    // );
+}

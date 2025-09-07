@@ -8,7 +8,7 @@
 //      - [x] training
 //      - [x] lib w/ template
 //  - [x] Polish up the module template contents
-//  - [] `bin` helper files
+//  - [x] `bin` helper files
 //  - [x] `crates` in Cargo.toml
 // - [] Polish output and feedback
 // - [] Make hardcoded context options CLI flags
@@ -153,7 +153,6 @@ fn generate_files(project_path: &Path) -> anyhow::Result<()> {
     let mut lib_file = File::create(project_path.join("src/lib.rs"))?;
     write!(lib_file, "{content}")?;
 
-    // main.rs - inference
     let project_name = match project_path.file_name() {
         Some(file_name) => match file_name.to_str() {
             Some(file_name) => file_name,
@@ -171,6 +170,8 @@ fn generate_files(project_path: &Path) -> anyhow::Result<()> {
             ));
         }
     };
+
+    // main.rs - inference
     let main_template = env.get_template("main.rs.jinja")?;
     let context = context! {
         project_name => project_name,
@@ -183,6 +184,27 @@ fn generate_files(project_path: &Path) -> anyhow::Result<()> {
 
     let mut main_file = File::create(project_path.join("src/main.rs"))?;
     write!(main_file, "{content}")?;
+
+    // bin/train.rs
+    let train_template = env.get_template("bin/train.rs.jinja")?;
+    let context = context! {
+        project_name => project_name,
+        backend => "Wgpu",
+        artifact_dir => "/tmp/guide",
+        float_type => "f32",
+        int_type => "i32",
+    };
+    let content = train_template.render(context!(context))?;
+
+    let train_file_path = project_path.join("src/bin/train.rs");
+    fs::create_dir_all(train_file_path.parent().ok_or_else(|| {
+        anyhow!(
+            "Invalid parent path for train file {:?}",
+            train_file_path.parent()
+        )
+    })?)?;
+    let mut train_file = File::create(train_file_path)?;
+    write!(train_file, "{content}")?;
 
     Ok(())
 }
