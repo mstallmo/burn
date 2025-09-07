@@ -1,0 +1,16 @@
+use burn::backend::{{context.backend}};
+
+fn main() {
+    type {{context.project_name|capitalize}}Backend = {{context.backend}}<{{context.float_type}}, {{context.int_type}}>;
+
+    let artifact_dir = "{{context.artifact_dir}}";
+
+    // Complete inference implementation by creating a backend compatible
+    // device, getting input data, and updating the inference function
+    // in src/inference.rs to accept the input data
+    //
+    // {{context.project_name}}::inference::infer::<{{context.project_name|capitalize}}Backend>(
+    //    artifact_dir,
+    //    device,
+    // );
+}

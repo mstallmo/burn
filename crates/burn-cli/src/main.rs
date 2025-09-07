@@ -9,8 +9,9 @@
 //      - [x] lib w/ template
 //  - [x] Polish up the module template contents
 //  - [] `bin` helper files
-//  - [] `crates` in Cargo.toml
+//  - [x] `crates` in Cargo.toml
 // - [] Polish output and feedback
+// - [] Make hardcoded context options CLI flags
 
 mod utils;
 
@@ -83,6 +84,26 @@ fn generate_project_structure(project_path: &Path) -> anyhow::Result<()> {
 }
 
 fn generate_files(project_path: &Path) -> anyhow::Result<()> {
+    // Update Cargo.toml
+    let cargo_toml_path = project_path.join("Cargo.toml");
+    let mut cargo_toml = fs::read_to_string(&cargo_toml_path)?.parse::<DocumentMut>()?;
+    cargo_toml["dependencies"] = toml_edit::table();
+    cargo_toml["dependencies"]
+        .as_table_mut()
+        .unwrap()
+        .set_position(1);
+    cargo_toml["dependencies"]["burn"]["version"] = toml_edit::value("0.18.0");
+    let mut features = Array::new();
+    features.push("std");
+    features.push("tui");
+    features.push("train");
+    features.push("wgpu");
+    features.push("fusion");
+    cargo_toml["dependencies"]["burn"]["features"] = toml_edit::value(Value::Array(features));
+    cargo_toml["dependencies"]["burn"]["default-features"] = toml_edit::value(false);
+    let mut cargo_toml_file = File::create(&cargo_toml_path)?;
+    write!(cargo_toml_file, "{cargo_toml}")?;
+
     let mut env = Environment::new();
     minijinja_embed::load_templates!(&mut env);
 
@@ -132,25 +153,36 @@ fn generate_files(project_path: &Path) -> anyhow::Result<()> {
     let mut lib_file = File::create(project_path.join("src/lib.rs"))?;
     write!(lib_file, "{content}")?;
 
-    // Update Cargo.toml
-    let cargo_toml_path = project_path.join("Cargo.toml");
-    let mut cargo_toml = fs::read_to_string(&cargo_toml_path)?.parse::<DocumentMut>()?;
-    cargo_toml["dependencies"] = toml_edit::table();
-    cargo_toml["dependencies"]
-        .as_table_mut()
-        .unwrap()
-        .set_position(1);
-    cargo_toml["dependencies"]["burn"]["version"] = toml_edit::value("0.18.0");
-    let mut features = Array::new();
-    features.push("std");
-    features.push("tui");
-    features.push("train");
-    features.push("wgpu");
-    features.push("fusion");
-    cargo_toml["dependencies"]["burn"]["features"] = toml_edit::value(Value::Array(features));
-    cargo_toml["dependencies"]["burn"]["default-features"] = toml_edit::value(false);
-    let mut cargo_toml_file = File::create(&cargo_toml_path)?;
-    write!(cargo_toml_file, "{cargo_toml}")?;
+    // main.rs - inference
+    let project_name = match project_path.file_name() {
+        Some(file_name) => match file_name.to_str() {
+            Some(file_name) => file_name,
+            None => {
+                return Err(anyhow!(
+                    "{} is an invalid project path. The directory name is not a valid string",
+                    project_path.display()
+                ));
+            }
+        },
+        None => {
+            return Err(anyhow!(
+                "{} is an invalid project path. The path must end in a directory name",
+                project_path.display()
+            ));
+        }
+    };
+    let main_template = env.get_template("main.rs.jinja")?;
+    let context = context! {
+        project_name => project_name,
+        backend => "Wgpu",
+        artifact_dir => "/tmp/guide",
+        float_type => "f32",
+        int_type => "i32",
+    };
+    let content = main_template.render(context!(context))?;
+
+    let mut main_file = File::create(project_path.join("src/main.rs"))?;
+    write!(main_file, "{content}")?;
 
     Ok(())
 }
