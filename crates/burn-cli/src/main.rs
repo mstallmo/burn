@@ -31,7 +31,7 @@ use toml_edit::{Array, DocumentMut, Value};
 static FIRE: Emoji<'_, '_> = Emoji("🔥", "");
 
 #[derive(Parser, Debug)]
-#[command(version, about)]
+#[command(version)]
 struct Args {
     #[command(subcommand)]
     cmd: Commands,
@@ -39,14 +39,86 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    New { path: Option<PathBuf> },
+    #[command(about = "Generate a new Burn project")]
+    New {
+        path: Option<PathBuf>,
+        #[arg(short, long)]
+        artifact_dir: Option<PathBuf>,
+        #[arg(short, long, default_value = "ndarray")]
+        backend: Backends,
+        #[arg(short, long, default_value = "f32")]
+        float_type: String,
+        #[arg(short, long, default_value = "i32")]
+        int_type: String,
+    },
+}
+
+#[derive(Debug, Copy, Clone, clap::ValueEnum)]
+enum Backends {
+    Candle,
+    CandleCuda,
+    CandleMetal,
+    Cuda,
+    Rocm,
+    #[value(name = "ndarray")]
+    NdArray,
+    Tch,
+    Vulkan,
+    #[value(name = "webgpu")]
+    WebGpu,
+    Metal,
+    Wgpu,
+    Cpu,
+}
+
+impl Backends {
+    /// Returns the Rust identifier for the corresponding Burn backend
+    fn as_ident(&self) -> &str {
+        match self {
+            Self::Candle | Self::CandleCuda | Self::CandleMetal => "Candle",
+            Self::Cuda => "Cuda",
+            Self::Rocm => "Rocm",
+            Self::NdArray => "NdArray",
+            Self::Tch => "LibTorch",
+            Self::Vulkan => "Vulkan",
+            Self::WebGpu => "WebGpu",
+            Self::Metal => "Metal",
+            Self::Wgpu => "Wgpu",
+            Self::Cpu => "Cpu",
+        }
+    }
+
+    /// Returns the name for the corresponding burn feature
+    /// to enable the backend.
+    fn as_feature(&self) -> &str {
+        match self {
+            Self::Candle => "candle",
+            Self::CandleCuda => "candle-cuda",
+            Self::CandleMetal => "candle-metal",
+            Self::Cuda => "cuda",
+            Self::Rocm => "rocm",
+            Self::NdArray => "ndarray",
+            Self::Tch => "tch",
+            Self::Vulkan => "vulkan",
+            Self::WebGpu => "webgpu",
+            Self::Metal => "metal",
+            Self::Wgpu => "wgpu",
+            Self::Cpu => "cpu",
+        }
+    }
 }
 
 fn main() {
     let args = Args::parse();
 
     match args.cmd {
-        Commands::New { path } => {
+        Commands::New {
+            path,
+            artifact_dir,
+            backend,
+            float_type,
+            int_type,
+        } => {
             let project_path = match path {
                 Some(path) => path,
                 None => env::current_dir().expect("Failed to get current directory. Make sure the current directory exists and you have permissions to access it."),
@@ -58,7 +130,38 @@ fn main() {
                 return;
             }
 
-            if let Err(err) = generate_files(&project_path) {
+            let artifact_dir = match artifact_dir {
+                Some(artifact_dir) => artifact_dir,
+                None => {
+                    let project_dir = match project_path.file_name() {
+                        Some(project_dir) => project_dir,
+                        None => {
+                            eprintln!(
+                                "{}",
+                                style(format!(
+                                    "{} is not a valid directory path.",
+                                    project_path.display()
+                                ))
+                                .red()
+                            );
+                            return;
+                        }
+                    };
+
+                    let mut artifact_dir = PathBuf::from("/tmp");
+                    artifact_dir.push(project_dir);
+
+                    artifact_dir
+                }
+            };
+
+            if let Err(err) = generate_files(
+                &project_path,
+                &artifact_dir,
+                backend,
+                &float_type,
+                &int_type,
+            ) {
                 eprintln!("{err}");
                 return;
             }
@@ -96,7 +199,13 @@ fn generate_project_structure(project_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn generate_files(project_path: &Path) -> anyhow::Result<()> {
+fn generate_files(
+    project_path: &Path,
+    artifact_dir: &Path,
+    backend: Backends,
+    float_type: &str,
+    int_type: &str,
+) -> anyhow::Result<()> {
     println!("[3/3] {}", style("Generating project files").bold());
 
     // Update Cargo.toml
@@ -113,8 +222,8 @@ fn generate_files(project_path: &Path) -> anyhow::Result<()> {
     features.push("std");
     features.push("tui");
     features.push("train");
-    features.push("wgpu");
     features.push("fusion");
+    features.push(backend.as_feature());
     cargo_toml["dependencies"]["burn"]["features"] = toml_edit::value(Value::Array(features));
     cargo_toml["dependencies"]["burn"]["default-features"] = toml_edit::value(false);
     let mut cargo_toml_file = File::create(&cargo_toml_path)?;
@@ -203,10 +312,10 @@ fn generate_files(project_path: &Path) -> anyhow::Result<()> {
     let main_template = env.get_template("main.rs.jinja")?;
     let context = context! {
         project_name => project_name,
-        backend => "Wgpu",
-        artifact_dir => "/tmp/guide",
-        float_type => "f32",
-        int_type => "i32",
+        backend => backend.as_ident(),
+        artifact_dir => artifact_dir.to_str(),
+        float_type => float_type,
+        int_type => int_type,
     };
     let content = main_template.render(context!(context))?;
 
@@ -219,10 +328,10 @@ fn generate_files(project_path: &Path) -> anyhow::Result<()> {
     let train_template = env.get_template("bin/train.rs.jinja")?;
     let context = context! {
         project_name => project_name,
-        backend => "Wgpu",
-        artifact_dir => "/tmp/guide",
-        float_type => "f32",
-        int_type => "i32",
+        backend => backend.as_ident(),
+        artifact_dir => artifact_dir.to_str(),
+        float_type => float_type,
+        int_type => int_type,
     };
     let content = train_template.render(context!(context))?;
 
