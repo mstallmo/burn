@@ -1,5 +1,5 @@
 // Implementaiton TODO List
-// - [] Generate basic project structure for pure Burn training of a model
+// - [x] Generate basic project structure for pure Burn training of a model
 //  - [x] New Rust lib using cargo
 //  - [x] Modules
 //      - [x] data
@@ -11,19 +11,22 @@
 //  - [x] `bin` helper files
 //  - [x] `crates` in Cargo.toml
 // - [x] Polish output and feedback
-// - [] Make hardcoded context options CLI flags
+// - [x] Make hardcoded context options CLI flags
+// - [x] Fix type naming with kebab-case and snake_case project paths
+// - [] Cleanup code organization
 
 mod utils;
 
 use anyhow::anyhow;
 use clap::{Parser, Subcommand};
 use console::{Emoji, style};
+use convert_case::{Case, Casing};
 use minijinja::{Environment, context};
 use std::{
     env,
     fs::{self, File},
     io::Write,
-    path::{Path, PathBuf},
+    path::{Display, Path, PathBuf},
     process,
 };
 use toml_edit::{Array, DocumentMut, Value};
@@ -42,6 +45,8 @@ enum Commands {
     #[command(about = "Generate a new Burn project")]
     New {
         path: Option<PathBuf>,
+        #[arg(short, long)]
+        model_name: String,
         #[arg(short, long)]
         artifact_dir: Option<PathBuf>,
         #[arg(short, long, default_value = "ndarray")]
@@ -108,20 +113,64 @@ impl Backends {
     }
 }
 
+struct Project(PathBuf);
+
+impl Project {
+    /// Returns the name of the Project
+    ///
+    /// The project name corresponds to the "file name" of the
+    /// path described by the internal `PathBuf`
+    pub fn name(&self) -> anyhow::Result<&str> {
+        match self.0.file_name() {
+            Some(file_name) => match file_name.to_str() {
+                Some(file_name) => Ok(file_name),
+                None => Err(anyhow!(
+                    "{} is an invalid project path. The directory name is not a valid string",
+                    self.0.display()
+                )),
+            },
+            None => Err(anyhow!(
+                "{} is an invalid project path. The path must end in a directory name",
+                self.0.display()
+            )),
+        }
+    }
+
+    /// Returns the name of the project converted to the specified [convert_case::Case]
+    pub fn name_with_case(&self, case: Case) -> anyhow::Result<String> {
+        let name = self.name()?;
+
+        Ok(name.to_case(case))
+    }
+
+    /// Returns a new [std::path::PathBuf] joined with the provided `path`.
+    ///
+    /// This method is a passthrough for `join` on [std::path::Path]
+    pub fn join<P: AsRef<Path>>(&self, path: P) -> PathBuf {
+        self.0.join(path)
+    }
+
+    /// Returns the project path in a displayable format
+    pub fn display(&self) -> Display<'_> {
+        self.0.display()
+    }
+}
+
 fn main() {
     let args = Args::parse();
 
     match args.cmd {
         Commands::New {
             path,
+            model_name,
             artifact_dir,
             backend,
             float_type,
             int_type,
         } => {
             let project_path = match path {
-                Some(path) => path,
-                None => env::current_dir().expect("Failed to get current directory. Make sure the current directory exists and you have permissions to access it."),
+                Some(path) => Project(path),
+                None => Project(env::current_dir().expect("Failed to get current directory. Make sure the current directory exists and you have permissions to access it.")),
             };
             println!("{}\n", style("Creating new Burn project...").bold());
 
@@ -133,17 +182,12 @@ fn main() {
             let artifact_dir = match artifact_dir {
                 Some(artifact_dir) => artifact_dir,
                 None => {
-                    let project_dir = match project_path.file_name() {
-                        Some(project_dir) => project_dir,
-                        None => {
-                            eprintln!(
-                                "{}",
-                                style(format!(
-                                    "{} is not a valid directory path.",
-                                    project_path.display()
-                                ))
-                                .red()
-                            );
+                    // Create a default artifact directory based on the project name
+                    // on the project name
+                    let project_dir = match project_path.name() {
+                        Ok(project_name) => project_name,
+                        Err(err) => {
+                            eprintln!("{}", style(err).red());
                             return;
                         }
                     };
@@ -157,6 +201,7 @@ fn main() {
 
             if let Err(err) = generate_files(
                 &project_path,
+                &model_name,
                 &artifact_dir,
                 backend,
                 &float_type,
@@ -175,8 +220,8 @@ fn main() {
     }
 }
 
-fn generate_project_structure(project_path: &Path) -> anyhow::Result<()> {
-    println!("[1/3] {}", style("Checking installed tools").bold());
+fn generate_project_structure(project: &Project) -> anyhow::Result<()> {
+    println!("[1/3] {}", style("Checking tools").bold());
     print!("  {}", style("cargo").dim());
     if !utils::check_cargo()? {
         return Err(anyhow!(
@@ -189,7 +234,7 @@ fn generate_project_structure(project_path: &Path) -> anyhow::Result<()> {
     let output = process::Command::new("cargo")
         .arg("new")
         .arg("--lib")
-        .arg(format!("{}", project_path.display()))
+        .arg(format!("{}", project.display()))
         .output()?;
 
     if !output.status.success() {
@@ -200,7 +245,8 @@ fn generate_project_structure(project_path: &Path) -> anyhow::Result<()> {
 }
 
 fn generate_files(
-    project_path: &Path,
+    project: &Project,
+    model_name: &str,
     artifact_dir: &Path,
     backend: Backends,
     float_type: &str,
@@ -208,9 +254,10 @@ fn generate_files(
 ) -> anyhow::Result<()> {
     println!("[3/3] {}", style("Generating project files").bold());
 
+    let model_name = model_name.to_case(Case::Pascal);
     // Update Cargo.toml
     print!("  {}", style("adding dependencies").dim());
-    let cargo_toml_path = project_path.join("Cargo.toml");
+    let cargo_toml_path = project.join("Cargo.toml");
     let mut cargo_toml = fs::read_to_string(&cargo_toml_path)?.parse::<DocumentMut>()?;
     cargo_toml["dependencies"] = toml_edit::table();
     cargo_toml["dependencies"]
@@ -234,84 +281,67 @@ fn generate_files(
     minijinja_embed::load_templates!(&mut env);
 
     // data.rs
-    print!("  {}", style("generating src/data.rs").dim());
+    print!("  {}", style("src/data.rs").dim());
     let data_template = env.get_template("data.rs.jinja")?;
     let context = context! {
-        model_name => "Mnist",
+        model_name => model_name,
     };
     let content = data_template.render(context!(context))?;
 
-    let mut data_file = File::create(project_path.join("src/data.rs"))?;
+    let mut data_file = File::create(project.join("src/data.rs"))?;
     write!(data_file, "{content}")?;
     println!("{}", style("...done!").bold().green());
 
     // inference.rs
-    print!("  {}", style("generating src/inference.rs").dim());
+    print!("  {}", style("src/inference.rs").dim());
     let inference_template = env.get_template("inference.rs.jinja")?;
     let context = context! {
-        model_name => "Mnist",
+        model_name => model_name,
     };
     let content = inference_template.render(context!(context))?;
 
-    let mut inference_file = File::create(project_path.join("src/inference.rs"))?;
+    let mut inference_file = File::create(project.join("src/inference.rs"))?;
     write!(inference_file, "{content}")?;
     println!("{}", style("...done!").bold().green());
 
     // model.rs
-    print!("  {}", style("generating src/model.rs").dim());
+    print!("  {}", style("src/model.rs").dim());
     let model_template = env.get_template("model.rs.jinja")?;
     let context = context! {};
     let content = model_template.render(context!(context))?;
 
-    let mut model_file = File::create(project_path.join("src/model.rs"))?;
+    let mut model_file = File::create(project.join("src/model.rs"))?;
     write!(model_file, "{content}")?;
     println!("{}", style("...done!").bold().green());
 
     // training.rs
-    print!("  {}", style("generating src/training.rs").dim());
+    print!("  {}", style("src/training.rs").dim());
     let training_template = env.get_template("training.rs.jinja")?;
     let context = context! {
-        model_name => "Mnist",
+        model_name => model_name,
     };
     let content = training_template.render(context!(context))?;
 
-    let mut training_file = File::create(project_path.join("src/training.rs"))?;
+    let mut training_file = File::create(project.join("src/training.rs"))?;
     write!(training_file, "{content}")?;
     println!("{}", style("...done!").bold().green());
 
     // lib.rs
-    print!("  {}", style("generating src/lib.rs").dim());
+    print!("  {}", style("src/lib.rs").dim());
     let lib_template = env.get_template("lib.rs.jinja")?;
     let context = context! {};
     let content = lib_template.render(context!(context))?;
 
-    let mut lib_file = File::create(project_path.join("src/lib.rs"))?;
+    let mut lib_file = File::create(project.join("src/lib.rs"))?;
     write!(lib_file, "{content}")?;
     println!("{}", style("...done!").bold().green());
 
-    let project_name = match project_path.file_name() {
-        Some(file_name) => match file_name.to_str() {
-            Some(file_name) => file_name,
-            None => {
-                return Err(anyhow!(
-                    "{} is an invalid project path. The directory name is not a valid string",
-                    project_path.display()
-                ));
-            }
-        },
-        None => {
-            return Err(anyhow!(
-                "{} is an invalid project path. The path must end in a directory name",
-                project_path.display()
-            ));
-        }
-    };
-
     // main.rs - inference
-    print!("  {}", style("generating src/main.rs").dim());
+    print!("  {}", style("src/main.rs").dim());
     let main_template = env.get_template("main.rs.jinja")?;
     let context = context! {
-        project_name => project_name,
+        project_name => project.name_with_case(Case::Snake)?,
+        project_ident => project.name_with_case(Case::Pascal)?,
         backend => backend.as_ident(),
         artifact_dir => artifact_dir.to_str(),
         float_type => float_type,
@@ -319,15 +349,16 @@ fn generate_files(
     };
     let content = main_template.render(context!(context))?;
 
-    let mut main_file = File::create(project_path.join("src/main.rs"))?;
+    let mut main_file = File::create(project.join("src/main.rs"))?;
     write!(main_file, "{content}")?;
     println!("{}", style("...done!").bold().green());
 
     // bin/train.rs
-    print!("  {}", style("generating src/bin/train.rs").dim());
+    print!("  {}", style("src/bin/train.rs").dim());
     let train_template = env.get_template("bin/train.rs.jinja")?;
     let context = context! {
-        project_name => project_name,
+        project_name => project.name_with_case(Case::Snake)?,
+        project_ident => project.name_with_case(Case::Pascal)?,
         backend => backend.as_ident(),
         artifact_dir => artifact_dir.to_str(),
         float_type => float_type,
@@ -335,7 +366,7 @@ fn generate_files(
     };
     let content = train_template.render(context!(context))?;
 
-    let train_file_path = project_path.join("src/bin/train.rs");
+    let train_file_path = project.join("src/bin/train.rs");
     fs::create_dir_all(train_file_path.parent().ok_or_else(|| {
         anyhow!(
             "Invalid parent path for train file {:?}",

@@ -625,6 +625,7 @@ dependencies = [
  "burn",
  "clap",
  "console 0.16.0",
+ "convert_case",
  "minijinja",
  "minijinja-embed",
  "toml_edit 0.23.4",

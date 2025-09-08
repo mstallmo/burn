@@ -4,8 +4,8 @@ use burn::{
 use {{context.project_name}}::{model::ModelConfig, training::TrainingConfig};
 
 fn main() {
-    type {{context.project_name|capitalize}}Backend = {{context.backend}}<{{context.float_type}}, {{context.int_type}}>;
-    type MyAutodiffBackend = Autodiff<{{context.project_name|capitalize}}Backend>;
+    type {{context.project_ident}}Backend = {{context.backend}}<{{context.float_type}}, {{context.int_type}}>;
+    type MyAutodiffBackend = Autodiff<{{context.project_ident}}Backend>;
 
      let artifact_dir = "{{context.artifact_dir}}";
 
